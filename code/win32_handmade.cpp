@@ -35,8 +35,7 @@ internal void Win32ResizeDIBSection(int Width, int Height)
                            &BitmapInfo,
                            DIB_RGB_COLORS,
                            &BitmapMemory,
-                           0,
-                           0);
+                           0, 0);
 
   
 }
@@ -46,10 +45,8 @@ internal void Win32UpdateWindow(HDC DeviceContext, int X, int Y, int Width, int 
   StretchDIBits( DeviceContext,
                     X, Y, Width, Height,
                     X, Y, Width, Height,
-                    BitmapMemory,
-                    &BitmapInfo,
-                    DIB_RGB_COLORS,
-                    SRCCOPY);
+                    BitmapMemory, &BitmapInfo,
+                    DIB_RGB_COLORS, SRCCOPY);
 }
 
 LRESULT CALLBACK Win32MainWindowCallback(
@@ -59,6 +56,7 @@ LRESULT CALLBACK Win32MainWindowCallback(
    LPARAM LParam)
 {
 	LRESULT Result = 0;
+
 	switch(Message)
 	{
 		case WM_SIZE:
@@ -99,15 +97,7 @@ LRESULT CALLBACK Win32MainWindowCallback(
       Win32UpdateWindow(DeviceContext, X, Y, Width, Height);
       local_persist DWORD Operation = WHITENESS;
       PatBlt(DeviceContext, X, Y, Width, Height, Operation);
-      if(Operation == WHITENESS)
-        {
-          Operation = BLACKNESS;
-        }
-      else
-        {
-          Operation = WHITENESS;
-        }
-      EndPaint(Window, &Paint);
+      EndPaint(Window, &Paint);	  
     } break;
 
 		default:
@@ -127,14 +117,12 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
 {
 	WNDCLASS WindowClass = {};
 
-	//check if hredraw and vredraw still matter in the modern time
-	WindowClass.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
 	WindowClass.lpfnWndProc = Win32MainWindowCallback;
-    WindowClass.hInstance = Instance;
+  WindowClass.hInstance = Instance;
     //WindowClass.hIcon = ;
     WindowClass.lpszClassName = "Handmade Hero Window Class";
 
-    if(RegisterClass(&WindowClass))
+    if(RegisterClassA(&WindowClass))
       {
         HWND WindowHandle = CreateWindowExA( 0,
                                             WindowClass.lpszClassName,
@@ -151,9 +139,11 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
 
         if (WindowHandle)
           {
-            MSG Message;
+            Running = true;
+            
             while(Running)
               {
+                MSG Message;
                 BOOL MessageResult = GetMessage(&Message,0,0,0);
                 if (MessageResult > 0)
                   {
