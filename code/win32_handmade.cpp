@@ -1,7 +1,13 @@
 #include <windows.h>
 #include <stdint.h>
+#include <xinput.h>
 
 
+/*
+
+  Handmade Hero episode 6, 40:47
+
+ */
 #define internal static
 #define local_persist static 
 #define global_variable static 
@@ -32,10 +38,57 @@ struct win32_window_dimension
   int Height;
 };
 
+
 global_variable bool GlobalRunning;
 global_variable win32_offscreen_buffer GlobalBackBuffer;
 
-win32_window_dimension Win32GetWindowDimension(HWND Window)
+//NOTE(brandon) this is the support for xinputgetstate
+#define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE* pState)
+typedef X_INPUT_GET_STATE(x_input_get_state);
+X_INPUT_GET_STATE(XInputGetStateStub)
+{
+	OutputDebugStringA("Using get stub\n");
+  return (0);
+}
+global_variable x_input_get_state* XInputGetState_ = XInputGetStateStub;
+#define XInputGetState XInputGetState_
+
+
+//NOTE(brandon) this is the support for xinputsetstate
+#define X_INPUT_SET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_VIBRATION* pVibration)
+typedef X_INPUT_SET_STATE(x_input_set_state);
+X_INPUT_SET_STATE(XInputSetStateStub)
+{
+	OutputDebugStringA("Using set stub\n");
+  return (0);
+}
+global_variable x_input_set_state* XInputSetState_ = XInputSetStateStub;
+#define XInputSetState XInputSetState_
+
+
+
+internal void Win32LoadXInput(void)
+{
+  HMODULE XInputLibrary = LoadLibrary("xinput1_3.dll");
+
+  if(XInputLibrary)
+    {
+      XInputGetState = (x_input_get_state *)GetProcAddress(XInputLibrary, "XInputGetState");
+	  if (!XInputGetState)
+	  {
+		  OutputDebugStringA("Failed to load XInputGetState\n");
+		  XInputGetState = XInputGetStateStub;
+	  }
+      XInputSetState = (x_input_set_state*)GetProcAddress(XInputLibrary, "XInputSetState");
+	  if (!XInputSetState)
+	  {
+		  OutputDebugStringA("Failed to load XInputSetState\n");
+		  XInputSetState = XInputSetStateStub;
+	  }
+    }
+}
+
+internal win32_window_dimension Win32GetWindowDimension(HWND Window)
 {
   win32_window_dimension res;
 
@@ -163,6 +216,8 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
 		LPSTR CommandLine,
 		int ShowCode)
 {
+	Win32LoadXInput();
+
 	WNDCLASS WindowClass = {};
 
   Win32ResizeDIBSection(&GlobalBackBuffer, 1200, 780);
@@ -206,6 +261,68 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
                     TranslateMessage(&Message);
                     DispatchMessage(&Message);
                   }
+
+
+                //poll this more frequently
+                for(DWORD ControllerIndex = 0; ControllerIndex < XUSER_MAX_COUNT; ++ControllerIndex)
+                {
+                  XINPUT_STATE ControllerState;
+
+                  if (XInputGetState(ControllerIndex, &ControllerState) == ERROR_SUCCESS)
+                    {
+                      //NOTE(brandon) the controller(s) is plugged in!
+                      XINPUT_GAMEPAD* Pad = &ControllerState.Gamepad;
+
+                      bool Up = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_UP);
+                      bool Left = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT);
+                      bool Right = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT);
+                      bool Down = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN);
+                      bool Back = (Pad->wButtons & XINPUT_GAMEPAD_BACK);
+                      bool Start = (Pad->wButtons & XINPUT_GAMEPAD_START);
+                      bool ButtonA = (Pad->wButtons & XINPUT_GAMEPAD_A);
+                      bool ButtonB = (Pad->wButtons & XINPUT_GAMEPAD_B);
+                      bool ButtonX = (Pad->wButtons & XINPUT_GAMEPAD_X);
+                      bool ButtonY = (Pad->wButtons & XINPUT_GAMEPAD_Y);
+                      bool LeftShoulder = (Pad->wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER);
+                      bool RightShoulder = (Pad->wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER);
+
+                      int16 StickX = Pad->sThumbLX;
+                      int16 StickY = Pad->sThumbLY;
+
+                      if(ButtonA)
+                        {
+                          YOffset += 6;
+                        }
+
+                      if(ButtonB)
+                        {
+                          XOffset += 6;
+                        }
+
+                      if(ButtonX)
+                        {
+                          XOffset -= 6;
+                        }
+
+                      if(ButtonY)
+                        {
+                          YOffset -= 6;
+                        }
+
+                      OutputDebugStringA("Plugged in!\n");
+
+                      // XOffset += StickX >> 12;
+                      //YOffset += StickY >> 12;
+
+                     }
+                  else
+                    {
+                      //NOTE(brandon) the controller is not plugged in
+					  OutputDebugStringA("The controller is not plugged in!\n");
+                    }
+
+                }
+
                 RenderWeirdGradient(GlobalBackBuffer, XOffset, YOffset);
 
                 win32_window_dimension Dims = Win32GetWindowDimension(Window);
@@ -213,7 +330,7 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
 
 
                 ++XOffset;
-                YOffset += 2;
+                YOffset += 1;
               }
           }
 
