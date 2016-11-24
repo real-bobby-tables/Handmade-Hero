@@ -7,7 +7,7 @@
 
 /*
 
-  Handmade Hero episode 7, 0:00
+  Handmade Hero episode 8, 0:00
 
  */
 #define internal static
