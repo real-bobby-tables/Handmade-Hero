@@ -1,6 +1,8 @@
 #include <windows.h>
 #include <stdint.h>
 #include <xinput.h>
+#include <dsound.h>
+
 
 
 /*
@@ -22,6 +24,8 @@ typedef int8_t int8;
 typedef int16_t int16;
 typedef int32_t int32;
 typedef int64_t int64;
+typedef int32 bool32;
+
 
 struct win32_offscreen_buffer
 {
@@ -47,8 +51,8 @@ global_variable win32_offscreen_buffer GlobalBackBuffer;
 typedef X_INPUT_GET_STATE(x_input_get_state);
 X_INPUT_GET_STATE(XInputGetStateStub)
 {
-	OutputDebugStringA("Using get stub\n");
-  return (0);
+	//OutputDebugStringA("Using get stub\n");
+  return (ERROR_DEVICE_NOT_CONNECTED);
 }
 global_variable x_input_get_state* XInputGetState_ = XInputGetStateStub;
 #define XInputGetState XInputGetState_
@@ -59,47 +63,131 @@ global_variable x_input_get_state* XInputGetState_ = XInputGetStateStub;
 typedef X_INPUT_SET_STATE(x_input_set_state);
 X_INPUT_SET_STATE(XInputSetStateStub)
 {
-	OutputDebugStringA("Using set stub\n");
-  return (0);
+	//OutputDebugStringA("Using set stub\n");
+  return (ERROR_DEVICE_NOT_CONNECTED);
 }
 global_variable x_input_set_state* XInputSetState_ = XInputSetStateStub;
 #define XInputSetState XInputSetState_
 
+//man, this is way too long 
+#define DIRECT_SOUND_CREATE(name) HRESULT WINAPI name(LPCGUID pcGuidDevice, \
+LPDIRECTSOUND *ppDS, LPUNKNOWN pUnkOuter)
 
+typedef DIRECT_SOUND_CREATE(direct_sound_create);
 
-internal void Win32LoadXInput(void)
+internal void Win32InitDSound(HWND Window, int32 SamplesPerSecond, int32 BufferSize)
 {
-  HMODULE XInputLibrary = LoadLibraryA("xinput1_3.dll");
+  HMODULE DSoundLibrary = LoadLibraryA("dsound.dll");
+
+  if(DSoundLibrary)
+    {
+      //beware, this should be one line, but needed to be broken up
+      direct_sound_create* DirectSoundCreate = (direct_sound_create*)
+        GetProcAddress(DSoundLibrary, "DirectSoundCreate");
+
+     LPDIRECTSOUND DirectSound;
+
+      if(DirectSoundCreate && SUCCEEDED(DirectSoundCreate(0, &DirectSound, 0)))
+        {
+          WAVEFORMATEX WaveFormat = {};
+          WaveFormat.wFormatTag = WAVE_FORMAT_PCM;
+          WaveFormat.nChannels = 2;
+          WaveFormat.nSamplesPerSec = SamplesPerSecond;
+          WaveFormat.wBitsPerSample = 16;
+          WaveFormat.nBlockAlign = (WaveFormat.nChannels * WaveFormat.wBitsPerSample) / 8;
+          WaveFormat.nAvgBytesPerSec = WaveFormat.nSamplesPerSec * WaveFormat.nBlockAlign;
+          WaveFormat.cbSize = 0;
+
+          if(SUCCEEDED(DirectSound->SetCooperativeLevel(Window, DSSCL_PRIORITY)))
+            {
+              DSBUFFERDESC BufferDescription = {};
+              BufferDescription.dwSize = sizeof(BufferDescription);
+              BufferDescription.dwFlags = DSBCAPS_PRIMARYBUFFER;
+
+              LPDIRECTSOUNDBUFFER PrimaryBuffer;
+              if(SUCCEEDED(DirectSound->CreateSoundBuffer(&BufferDescription, &PrimaryBuffer, 0)))
+                {
+                  if(SUCCEEDED(PrimaryBuffer->SetFormat(&WaveFormat)))
+                    {
+                      //NOTE(brandon): finally set the format
+                    }
+
+                  else
+                    {
+                      
+                    }
+                }
+
+              else
+                {
+                }
+            }
+          else
+            {
+            }
+
+          //NOTE(brandon): THIS IS WHERE THE SECONDARY BUFFER IS CREATED
+          DSBUFFERDESC BufferDescription = {};
+          BufferDescription.dwSize = sizeof(BufferDescription);
+          BufferDescription.dwFlags = 0;
+          BufferDescription.dwBufferBytes = BufferSize;
+          BufferDescription.lpwfxFormat = &WaveFormat;
+          LPDIRECTSOUNDBUFFER SecondaryBuffer;
+          if(SUCCEEDED(DirectSound->CreateSoundBuffer(&BufferDescription, &SecondaryBuffer, 0)))
+            {
+
+            }
+        }
+
+      else
+        {
+          //TODO(brandon): log diagnostic here
+        }
+
+    }
+
+  else
+    {
+      //TODO(brandon): log diagnostic here
+    }
+}
+
+internal void Win32LoadXInput()
+{
+  HMODULE XInputLibrary = LoadLibraryA("xinput1_4.dll");
+
+  if(!XInputLibrary)
+    {
+      XInputLibrary = LoadLibraryA("xinput1_3.dll");
+    }
 
   if(XInputLibrary)
     {
       XInputGetState = (x_input_get_state *)GetProcAddress(XInputLibrary, "XInputGetState");
-	  if (!XInputGetState)
-	  {
-		  OutputDebugStringA("Failed to load XInputGetState\n");
-		  XInputGetState = XInputGetStateStub;
-	  }
-      XInputSetState = (x_input_set_state*)GetProcAddress(XInputLibrary, "XInputSetState");
-	  if (!XInputSetState)
-	  {
-		  OutputDebugStringA("Failed to load XInputSetState\n");
-		  XInputSetState = XInputSetStateStub;
-	  }
+      if(!XInputGetState) {XInputGetState = XInputGetStateStub;}
+
+      XInputSetState = (x_input_set_state *)GetProcAddress(XInputLibrary, "XInputSetState");
+      if(!XInputSetState) {XInputSetState = XInputSetStateStub;}
+
+      //TODO(brandon): log diagnostic stuff here
+    }
+
+  else
+    {
+      //TODO(brandon): Log diagnostic stuff here
     }
 }
 
 internal win32_window_dimension Win32GetWindowDimension(HWND Window)
 {
-  win32_window_dimension res;
-
+  win32_window_dimension ret;
   RECT ClientRect;
   GetClientRect(Window, &ClientRect);
-  res.Width = ClientRect.right - ClientRect.left;
-  res.Height = ClientRect.bottom - ClientRect.top;
+  ret.Width = ClientRect.right = ClientRect.left;
+  ret.Height = ClientRect.bottom - ClientRect.top;
 
-  return (res);
+  return (ret);
 }
-
 internal void RenderWeirdGradient(win32_offscreen_buffer* Buffer, int XOffset, int YOffset)
 {
   //lets check what the optimizer does kids
@@ -189,40 +277,28 @@ LRESULT CALLBACK Win32MainWindowCallback(
 		} break;
 
   case WM_SYSKEYDOWN:
-    {
-      
-    } break;
-
   case WM_SYSKEYUP:
-    {
-      
-    } break;
-
   case WM_KEYDOWN:
-    {
-
-    } break;
-
   case WM_KEYUP:
     {
       uint32 VKCode = WParam;
-      bool WasDown = ((LParam & (1 << 30)) != 0);
-      bool IsDown = ((LParam & (1 << 31)) == 0);
+      bool32 WasDown = ((LParam & (1 << 30)));
+      bool32 IsDown = ((LParam & (1 << 31)));
 
 
       if(WasDown != IsDown)
         {
           if(VKCode == 'W')
             {
-          
+
             }
           else if (VKCode == 'A')
             {
-          
+
             }
           else if (VKCode == 'S')
             {
-          
+              
             }
           else if (VKCode == 'D')
             {
@@ -260,6 +336,13 @@ LRESULT CALLBACK Win32MainWindowCallback(
             {
           
             }
+        }
+
+      bool32 AltKeyWasDown = LParam & (1 << 29);
+
+      if((VKCode == VK_F4) && AltKeyWasDown)
+        {
+          GlobalRunning = false;
         }
       
     } break;
@@ -304,7 +387,6 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
   WindowClass.hInstance = Instance;
     //WindowClass.hIcon = ;
     WindowClass.lpszClassName = "Handmade Hero Window Class";
-
     if(RegisterClassA(&WindowClass))
       {
         HWND Window = CreateWindowExA( 0,
@@ -325,6 +407,9 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
             HDC DeviceContext = GetDC(Window);
 
             int XOffset = 0, YOffset = 0;
+
+            Win32InitDSound(Window, 48000, 48000 * sizeof(int16) * 2);
+
             GlobalRunning = true;
             while(GlobalRunning)
               {
@@ -395,7 +480,7 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
                   else
                     {
                       //NOTE(brandon) the controller is not plugged in
-					  OutputDebugStringA("The controller is not plugged in!\n");
+                      //OutputDebugStringA("The controller is not plugged in!\n");
                     }
 
                 }
